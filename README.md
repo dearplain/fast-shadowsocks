@@ -1,3 +1,7 @@
+# fast-shadowsocks
+
+Try [utp](https://github.com/anacrolix/utp), a test here.
+
 # shadowsocks-go
 
 Current version: 1.1.4 [![Build Status](https://travis-ci.org/shadowsocks/shadowsocks-go.png?branch=master)](https://travis-ci.org/shadowsocks/shadowsocks-go)
