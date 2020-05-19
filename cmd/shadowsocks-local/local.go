@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	ss "github.com/shadowsocks/shadowsocks-go/shadowsocks"
 	"io"
 	"log"
 	"math/rand"
@@ -12,12 +13,7 @@ import (
 	"os"
 	"path"
 	"strconv"
-	"sync"
 	"time"
-
-	"github.com/anacrolix/utp"
-	"github.com/dearplain/fast-shadowsocks/reusepipe"
-	ss "github.com/dearplain/fast-shadowsocks/shadowsocks"
 )
 
 var debug ss.DebugLog
@@ -232,40 +228,9 @@ func parseServerConfig(config *ss.Config) {
 	return
 }
 
-var pipes *reusepipe.Pipes
-var serverAddr string
-var pipesNeedUpdate bool
-var pipeLock sync.Mutex
-
-func DialWithRawAddr(rawaddr []byte, server string, cipher *ss.Cipher) (c *ss.Conn, err error) {
-	conn, err := pipes.NewPipe()
-	if err != nil {
-		pipesNeedUpdate = true
-		pipeLock.Lock()
-		if pipesNeedUpdate {
-			pipesNeedUpdate = false
-			conn, err := utp.Dial(serverAddr)
-			if err == nil {
-				pipes = reusepipe.NewPipes(conn)
-				log.Println("create new pipes ok to:", serverAddr)
-			} else {
-				log.Println("create new pipes failed:", err)
-			}
-		}
-		pipeLock.Unlock()
-		return
-	}
-	c = ss.NewConn(conn, cipher)
-	if _, err = c.Write(rawaddr); err != nil {
-		c.Close()
-		return nil, err
-	}
-	return
-}
-
 func connectToServer(serverId int, rawaddr []byte, addr string) (remote *ss.Conn, err error) {
 	se := servers.srvCipher[serverId]
-	remote, err = DialWithRawAddr(rawaddr, se.server, se.cipher.Copy())
+	remote, err = ss.DialWithRawAddr(rawaddr, se.server, se.cipher.Copy())
 	if err != nil {
 		log.Println("error connecting to shadowsocks server:", err)
 		const maxFailCnt = 30
@@ -442,19 +407,6 @@ func main() {
 			fmt.Fprintln(os.Stderr, "must specify local port")
 			os.Exit(1)
 		}
-	}
-
-	serverAddr = fmt.Sprintf("%s:%d", config.Server, config.ServerPort)
-	for {
-		conn, err := utp.Dial(serverAddr)
-		if err != nil {
-			log.Println("utp connect to ", serverAddr, "err:", err)
-			time.Sleep(2 * time.Second)
-			continue
-		}
-		log.Println("utp connect ok:", serverAddr)
-		pipes = reusepipe.NewPipes(conn)
-		break
 	}
 
 	parseServerConfig(config)

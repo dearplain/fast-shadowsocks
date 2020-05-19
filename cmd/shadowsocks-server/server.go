@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	ss "github.com/shadowsocks/shadowsocks-go/shadowsocks"
 	"io"
 	"log"
 	"net"
@@ -14,10 +15,6 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
-
-	"github.com/anacrolix/utp"
-	"github.com/dearplain/fast-shadowsocks/reusepipe"
-	ss "github.com/dearplain/fast-shadowsocks/shadowsocks"
 )
 
 var debug ss.DebugLog
@@ -258,7 +255,7 @@ func waitSignal() {
 }
 
 func run(port, password string) {
-	ln, err := utp.Listen(":" + port)
+	ln, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		log.Printf("error listening port %v: %v\n", port, err)
 		os.Exit(1)
@@ -267,29 +264,23 @@ func run(port, password string) {
 	var cipher *ss.Cipher
 	log.Printf("server listening port %v ...\n", port)
 	for {
-		conn, _ := ln.Accept()
-		pipes := reusepipe.NewPipes(conn)
-		go func(pipes *reusepipe.Pipes) {
-			for {
-				conn, err := pipes.Accept()
-				if err != nil {
-					// listener maybe closed to update password
-					debug.Printf("accept error: %v\n", err)
-					return
-				}
-				// Creating cipher upon first connection.
-				if cipher == nil {
-					log.Println("creating cipher for port:", port)
-					cipher, err = ss.NewCipher(config.Method, password)
-					if err != nil {
-						log.Printf("Error generating cipher for port: %s %v\n", port, err)
-						conn.Close()
-						continue
-					}
-				}
-				go handleConnection(ss.NewConn(conn, cipher.Copy()))
+		conn, err := ln.Accept()
+		if err != nil {
+			// listener maybe closed to update password
+			debug.Printf("accept error: %v\n", err)
+			return
+		}
+		// Creating cipher upon first connection.
+		if cipher == nil {
+			log.Println("creating cipher for port:", port)
+			cipher, err = ss.NewCipher(config.Method, password)
+			if err != nil {
+				log.Printf("Error generating cipher for port: %s %v\n", port, err)
+				conn.Close()
+				continue
 			}
-		}(pipes)
+		}
+		go handleConnection(ss.NewConn(conn, cipher.Copy()))
 	}
 }
 
