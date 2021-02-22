@@ -16,11 +16,14 @@ type Conn struct {
 }
 
 func NewConn(c net.Conn, cipher *Cipher) *Conn {
-	return &Conn{
+	cc := &Conn{
 		Conn:     c,
 		Cipher:   cipher,
 		readBuf:  leakyBuf.Get(),
-		writeBuf: leakyBuf.Get()}
+		writeBuf: leakyBuf.Get(),
+	}
+	cc.Cipher.Init(c)
+	return cc
 }
 
 func (c *Conn) Close() error {
@@ -75,6 +78,9 @@ func Dial(addr, server string, cipher *Cipher) (c *Conn, err error) {
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {
+	if c.Cipher.AC != nil {
+		return c.Cipher.AC.Read(b)
+	}
 	if c.dec == nil {
 		iv := make([]byte, c.info.ivLen)
 		if _, err = io.ReadFull(c.Conn, iv); err != nil {
@@ -100,6 +106,10 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 }
 
 func (c *Conn) Write(b []byte) (n int, err error) {
+	if c.Cipher.AC != nil {
+		return c.Cipher.AC.Write(b)
+	}
+
 	var iv []byte
 	if c.enc == nil {
 		iv, err = c.initEncrypt()

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	ss "github.com/shadowsocks/shadowsocks-go/shadowsocks"
 	"io"
 	"log"
 	"net"
@@ -15,6 +14,10 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
+	"time"
+
+	ss "github.com/dearplain/fast-shadowsocks/shadowsocks"
+	"github.com/dearplain/penet"
 )
 
 var debug ss.DebugLog
@@ -123,8 +126,10 @@ func handleConnection(conn *ss.Conn) {
 		log.Println("error getting request", conn.RemoteAddr(), conn.LocalAddr(), err)
 		return
 	}
-	debug.Println("connecting", host)
-	remote, err := net.Dial("tcp", host)
+	if debug {
+		debug.Println("connecting", host)
+	}
+	remote, err := net.DialTimeout("tcp", host, time.Second*2)
 	if err != nil {
 		if ne, ok := err.(*net.OpError); ok && (ne.Err == syscall.EMFILE || ne.Err == syscall.ENFILE) {
 			// log too many open file error
@@ -255,7 +260,7 @@ func waitSignal() {
 }
 
 func run(port, password string) {
-	ln, err := net.Listen("tcp", ":"+port)
+	ln, err := penet.Listen("tcp", ":"+port)
 	if err != nil {
 		log.Printf("error listening port %v: %v\n", port, err)
 		os.Exit(1)
@@ -346,10 +351,10 @@ func main() {
 	if config.Method == "" {
 		config.Method = "aes-256-cfb"
 	}
-	if err = ss.CheckCipherMethod(config.Method); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	// if err = ss.CheckCipherMethod(config.Method); err != nil {
+	// 	fmt.Fprintln(os.Stderr, err)
+	// 	os.Exit(1)
+	// }
 	if err = unifyPortPassword(config); err != nil {
 		os.Exit(1)
 	}

@@ -10,11 +10,16 @@ import (
 	"crypto/rc4"
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"io"
+	"net"
+
 	"github.com/codahale/chacha20"
+	"github.com/isayme/go-shadowsocks/shadowsocks/aead"
+
 	"golang.org/x/crypto/blowfish"
 	"golang.org/x/crypto/cast5"
 	"golang.org/x/crypto/salsa20/salsa"
-	"io"
 )
 
 var errEmptyPassword = errors.New("empty key")
@@ -215,10 +220,12 @@ func CheckCipherMethod(method string) error {
 }
 
 type Cipher struct {
-	enc  cipher.Stream
-	dec  cipher.Stream
-	key  []byte
-	info *cipherInfo
+	method string
+	enc    cipher.Stream
+	dec    cipher.Stream
+	key    []byte
+	info   *cipherInfo
+	AC     *aead.Cipher
 }
 
 // NewCipher creates a cipher that can be used in Dial() etc.
@@ -233,7 +240,17 @@ func NewCipher(method, password string) (c *Cipher, err error) {
 	}
 	mi, ok := cipherMethod[method]
 	if !ok {
-		return nil, errors.New("Unsupported encryption method: " + method)
+		defer func() {
+			if e := recover(); e != nil {
+				c = nil
+				err = errors.New(fmt.Sprint(e))
+			}
+		}()
+		c = &Cipher{}
+		c.method = method
+		c.AC = aead.NewCipher(method)
+		c.key = []byte(password)
+		return c, nil
 	}
 
 	key := evpBytesToKey(password, mi.keyLen)
@@ -251,6 +268,13 @@ func NewCipher(method, password string) (c *Cipher, err error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+func (c *Cipher) Init(conn net.Conn) {
+	if c.AC != nil {
+		keySize := c.AC.KeySize()
+		c.AC.Init(evpBytesToKey(string(c.key), keySize), conn)
+	}
 }
 
 // Initializes the block cipher with CFB mode, returns IV.
@@ -293,6 +317,13 @@ func (c *Cipher) Copy() *Cipher {
 	// maganitude slower than other ciphers. (I'm not sure whether this is
 	// because the current implementation is not highly optimized, or this is
 	// the nature of the algorithm.)
+
+	if c.AC != nil {
+		cc := &Cipher{}
+		*cc = *c
+		cc.AC = aead.NewCipher(c.method)
+		return cc
+	}
 
 	switch c.enc.(type) {
 	case tableCipher:

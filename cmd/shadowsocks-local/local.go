@@ -5,15 +5,19 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	ss "github.com/shadowsocks/shadowsocks-go/shadowsocks"
 	"io"
 	"log"
 	"math/rand"
 	"net"
+	"net/url"
 	"os"
 	"path"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/dearplain/fast-shadowsocks/penet"
+	ss "github.com/dearplain/fast-shadowsocks/shadowsocks"
 )
 
 var debug ss.DebugLog
@@ -25,6 +29,7 @@ var (
 	errAuthExtraData = errors.New("socks authentication get extra data")
 	errReqExtraData  = errors.New("socks request get extra data")
 	errCmd           = errors.New("socks command not supported")
+	errHttpFormat    = errors.New("http proxy request format error")
 )
 
 const (
@@ -228,9 +233,22 @@ func parseServerConfig(config *ss.Config) {
 	return
 }
 
+func DialWithRawAddr(rawaddr []byte, server string, cipher *ss.Cipher) (c *ss.Conn, err error) {
+	conn, err := penet.Dial("tcp", server)
+	if err != nil {
+		return
+	}
+	c = ss.NewConn(conn, cipher)
+	if _, err = c.Write(rawaddr); err != nil {
+		c.Close()
+		return nil, err
+	}
+	return
+}
+
 func connectToServer(serverId int, rawaddr []byte, addr string) (remote *ss.Conn, err error) {
 	se := servers.srvCipher[serverId]
-	remote, err = ss.DialWithRawAddr(rawaddr, se.server, se.cipher.Copy())
+	remote, err = DialWithRawAddr(rawaddr, se.server, se.cipher.Copy())
 	if err != nil {
 		log.Println("error connecting to shadowsocks server:", err)
 		const maxFailCnt = 30
@@ -273,6 +291,178 @@ func createServerConn(rawaddr []byte, addr string) (remote *ss.Conn, err error) 
 	return nil, err
 }
 
+func getSocksRequest(buf []byte) (rawaddr []byte, host string, err error) {
+	const (
+		idVer   = 0
+		idCmd   = 1
+		idType  = 3 // address type index
+		idIP0   = 4 // ip addres start index
+		idDmLen = 4 // domain address length index
+		idDm0   = 5 // domain address start index
+
+		typeIPv4 = 1 // type is ipv4 address
+		typeDm   = 3 // type is domain address
+		typeIPv6 = 4 // type is ipv6 address
+
+		lenIPv4   = 3 + 1 + net.IPv4len + 2 // 3(ver+cmd+rsv) + 1addrType + ipv4 + 2port
+		lenIPv6   = 3 + 1 + net.IPv6len + 2 // 3(ver+cmd+rsv) + 1addrType + ipv6 + 2port
+		lenDmBase = 3 + 1 + 1 + 2           // 3 + 1addrType + 1addrLen + 2port, plus addrLen
+	)
+
+	n := len(buf)
+	if buf[idVer] != socksVer5 {
+		err = errVer
+		return
+	}
+	if buf[idCmd] != socksCmdConnect {
+		err = errCmd
+		return
+	}
+
+	reqLen := -1
+	switch buf[idType] {
+	case typeIPv4:
+		reqLen = lenIPv4
+	case typeIPv6:
+		reqLen = lenIPv6
+	case typeDm:
+		reqLen = int(buf[idDmLen]) + lenDmBase
+	default:
+		err = errAddrType
+		return
+	}
+
+	if n == reqLen {
+		// common case, do nothing
+	} else if n < reqLen { // rare case
+		//if _, err = io.ReadFull(conn, buf[n:reqLen]); err != nil {
+		//	return
+		//}
+		//err = errReqExtraData
+		//return
+	} else {
+		err = errReqExtraData
+		return
+	}
+
+	rawaddr = buf[idType:reqLen]
+
+	if debug {
+		switch buf[idType] {
+		case typeIPv4:
+			host = net.IP(buf[idIP0 : idIP0+net.IPv4len]).String()
+		case typeIPv6:
+			host = net.IP(buf[idIP0 : idIP0+net.IPv6len]).String()
+		case typeDm:
+			host = string(buf[idDm0 : idDm0+buf[idDmLen]])
+		}
+		port := binary.BigEndian.Uint16(buf[reqLen-2 : reqLen])
+		host = net.JoinHostPort(host, strconv.Itoa(int(port)))
+	}
+
+	return
+}
+
+func getHttpRequest(buf []byte) (rawaddr []byte, host string, toWrite, writeBack []byte, err error) {
+	if buf[0] == 'C' {
+		sbuf := string(buf)
+		ss := strings.Split(sbuf, " ")  // CONNECT host:port
+		hp := strings.Split(ss[1], ":") // [host, port]
+		if debug {
+			log.Println(hp)
+		}
+		if len(hp) != 2 {
+			err = errHttpFormat
+			return
+		}
+		// [3, len(host), host]
+		rawaddr = []byte{3, byte(len(hp[0]))}
+		rawaddr = append(rawaddr, []byte(hp[0])...)
+		// port
+		var b [2]byte
+		i, _ := strconv.Atoi(hp[1])
+		binary.BigEndian.PutUint16(b[:], uint16(i))
+		rawaddr = append(rawaddr, b[:]...)
+
+		host = ss[1]
+		if debug {
+			log.Println(rawaddr)
+		}
+		writeBack = []byte("HTTP/1.0 200 Connection established\r\nProxy-agent: Shadowsocks/1.1\r\n\r\n")
+	} else if buf[0] == 'G' {
+		sbuf := string(buf)
+		if debug {
+			log.Println(sbuf)
+		}
+		// [3, len(host), host, port]
+		ss := strings.Split(sbuf, " ")
+		u, err2 := url.Parse(ss[1])
+		if err2 != nil {
+			err = err2
+			return
+		}
+		host = u.Host
+		rawaddr = []byte{3, byte(len(u.Host))}
+		rawaddr = append(rawaddr, []byte(u.Host)...)
+		var b [2]byte
+		var port int
+		if u.Port() == "" {
+			if u.Scheme == "http" {
+				port = 80
+			} else if u.Scheme == "https" {
+				port = 443
+			} else {
+				err = errHttpFormat
+				return
+			}
+		} else {
+			port, _ = strconv.Atoi(u.Port())
+		}
+		if debug {
+			log.Println(u.Scheme, u.Host, port, u.RequestURI())
+		}
+		binary.BigEndian.PutUint16(b[:], uint16(port))
+		rawaddr = append(rawaddr, b[:]...)
+		sbuf = strings.Replace(sbuf, ss[1], u.RequestURI(), 1)
+		sbuf = strings.Replace(sbuf, "Proxy-Connection: keep-alive\r\n", "", 1)
+		toWrite = []byte(sbuf)
+		if debug {
+			log.Println("toWrite:", string(toWrite))
+		}
+	} else {
+		err = errHttpFormat
+	}
+
+	return
+}
+
+func handSocksShakeByte(buf []byte, conn net.Conn) (err error) {
+	const (
+		idVer     = 0
+		idNmethod = 1
+	)
+
+	var n int
+	if buf[idVer] != socksVer5 {
+		return errVer
+	}
+	nmethod := int(buf[idNmethod])
+	msgLen := nmethod + 2
+	if n == msgLen { // handshake done, common case
+		// do nothing, jump directly to send confirmation
+	} else if n < msgLen { // has more methods to read, rare case
+		//if _, err = io.ReadFull(conn, buf[n:msgLen]); err != nil {
+		//	return
+		//}
+		//return errAuthExtraData
+	} else { // error, should not get extra data
+		return errAuthExtraData
+	}
+	// send confirmation: version 5, no authentication required
+	_, err = conn.Write([]byte{socksVer5, 0})
+	return
+}
+
 func handleConnection(conn net.Conn) {
 	if debug {
 		debug.Printf("socks connect from %s\n", conn.RemoteAddr().String())
@@ -284,24 +474,51 @@ func handleConnection(conn net.Conn) {
 		}
 	}()
 
-	var err error = nil
-	if err = handShake(conn); err != nil {
-		log.Println("socks handshake:", err)
+	buf := make([]byte, 4096)
+	var n int
+	var err error
+	if n, err = conn.Read(buf); err != nil {
 		return
 	}
-	rawaddr, addr, err := getRequest(conn)
-	if err != nil {
-		log.Println("error getting request:", err)
-		return
+
+	var rawaddr []byte
+	var addr string
+	var toWrite []byte
+	var writeBack []byte
+	//log.Println(string(buf[:n]))
+	if buf[0] == 'C' || buf[0] == 'G' {
+		rawaddr, addr, toWrite, writeBack, err = getHttpRequest(buf[:n])
+		if err != nil {
+			log.Println("error getting http request:", err)
+			return
+		}
+	} else {
+		if err = handSocksShakeByte(buf[:n], conn); err != nil {
+			log.Println("socks handshake:", err)
+			return
+		}
+		if n, err = conn.Read(buf); err != nil {
+			log.Println("read:", err)
+			return
+		}
+		rawaddr, addr, err = getSocksRequest(buf[:n])
+		if debug {
+			log.Println(string(rawaddr), "--", rawaddr, addr)
+		}
+		if err != nil {
+			log.Println("error getting request:", err)
+			return
+		}
+		// Sending connection established message immediately to client.
+		// This some round trip time for creating socks connection with the client.
+		// But if connection failed, the client will get connection reset error.
+		_, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x43})
+		if err != nil {
+			debug.Println("send connection confirmation:", err)
+			return
+		}
 	}
-	// Sending connection established message immediately to client.
-	// This some round trip time for creating socks connection with the client.
-	// But if connection failed, the client will get connection reset error.
-	_, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x43})
-	if err != nil {
-		debug.Println("send connection confirmation:", err)
-		return
-	}
+	buf = nil
 
 	remote, err := createServerConn(rawaddr, addr)
 	if err != nil {
@@ -315,6 +532,20 @@ func handleConnection(conn net.Conn) {
 			remote.Close()
 		}
 	}()
+	if len(writeBack) > 0 {
+		_, err = conn.Write(writeBack)
+		if err != nil {
+			debug.Println("send connection confirmation:", err)
+			return
+		}
+	}
+	if len(toWrite) > 0 {
+		_, err = remote.Write(toWrite)
+		if err != nil {
+			log.Println("http write req:", err)
+			return
+		}
+	}
 
 	go ss.PipeThenClose(conn, remote)
 	ss.PipeThenClose(remote, conn)

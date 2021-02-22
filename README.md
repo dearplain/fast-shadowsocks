@@ -1,3 +1,11 @@
+# fast-shadowsocks
+
+## 新功能
+
+- 快速传输协议：特性参见[dearplain/penet](http://github.com/dearplain/penet)
+- http代理
+- 增加加密方式(aes-128-gcm, aes-192-gcm, aes-256-gcm, chacha20-ietf-poly1305)
+
 # shadowsocks-go
 
 Current version: 1.1.4 [![Build Status](https://travis-ci.org/shadowsocks/shadowsocks-go.png?branch=master)](https://travis-ci.org/shadowsocks/shadowsocks-go)
