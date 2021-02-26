@@ -6,6 +6,19 @@
 - http代理
 - 增加加密方式(aes-128-gcm, aes-192-gcm, aes-256-gcm, chacha20-ietf-poly1305)
 
+## 速度测试
+
+### kcptun
+
+参数：
+client_windows_amd64 -r "xxxx:2001" -l ":8388" -mode fast3 -nocomp -autoexpire 900 -sockbuf 16777217 -dscp 46
+
+![kcptun](https://user-images.githubusercontent.com/1262589/109282700-d8854580-7858-11eb-9cd1-671cf5b8b84c.png)
+
+### fast-shadowsocks
+
+![fast-shadowsocks](https://user-images.githubusercontent.com/1262589/109282722-df13bd00-7858-11eb-96cd-988fcfdf78c5.png)
+
 # shadowsocks-go
 
 Current version: 1.1.4 [![Build Status](https://travis-ci.org/shadowsocks/shadowsocks-go.png?branch=master)](https://travis-ci.org/shadowsocks/shadowsocks-go)
