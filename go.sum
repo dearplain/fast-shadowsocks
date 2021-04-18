@@ -4,8 +4,8 @@ github.com/codahale/chacha20 v0.0.0-20151107025005-ec07b4f69a3f h1:GnkFLgLBj4MDb
 github.com/codahale/chacha20 v0.0.0-20151107025005-ec07b4f69a3f/go.mod h1:2EU+1emidIWL7uTbVXfPFlgYxYo3TGHz+ElH1Tp5GT0=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/dearplain/penet v0.1.1 h1:Qvol2vgHUZzWXT0lZTylvHmdt+ymAL4MeaJdOvpJeeM=
-github.com/dearplain/penet v0.1.1/go.mod h1:fzV78whJUqjPe4mRPhm7gAIyDIw3If+h5Bcd96Uq1Dk=
+github.com/dearplain/penet v0.1.2 h1:j2VaV2YeEzgMIpk5yG3319k16OBr3ryWDGUqzQv6PC8=
+github.com/dearplain/penet v0.1.2/go.mod h1:fzV78whJUqjPe4mRPhm7gAIyDIw3If+h5Bcd96Uq1Dk=
 github.com/isayme/go-config v0.0.0-20190209132515-066212c0ce1b/go.mod h1:gCBIBrmj+N81NzvevhA/FGMY9jUR+WpvwuS3mP5fmC4=
 github.com/isayme/go-logger v0.1.0/go.mod h1:53zvc0cz+ZjVqZgq1Sb4HEEzl/BPjoLA9xKv5L/XvE4=
 github.com/isayme/go-shadowsocks v0.2.1 h1:b/h+iWExyBLWe4WUOGfdbmregV+0OpVqYt7sfFQTYOs=

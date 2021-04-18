@@ -1,0 +1,16 @@
+
+builds:
+- id: shadowsocks-local
+  main: ./cmd/shadowsocks-local/local.go
+  binary: fast-shadowsocks-local
+  goos:
+    - darwin
+    - linux
+    - windows
+- id: shadowsocks-server
+  main: ./cmd/shadowsocks-server/server.go
+  binary: fast-shadowsocks-server
+  goos:
+    - darwin
+    - linux
+    - windows
